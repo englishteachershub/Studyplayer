@@ -199,7 +199,7 @@
       <label>Accent:
         <select id="accentSelect">
           <option value="en-IN">Indian English</option>
-          <option value="en-GB">British English</option>
+          <option selected="selected" value="en-GB">British English</option>
           <option value="en-US">American English</option>
         </select>
       </label>
@@ -209,6 +209,7 @@
     </div>
     <div class="controls-row">
       <button class="primary" id="btnPlay" type="button">&#128266; Read Aloud</button>
+      <button id="btnPause" type="button" disabled="disabled">&#9208; Pause</button>
       <button class="stop" id="btnStop" type="button">&#9209; Stop</button>
       <button id="btnMeaningToggle" type="button">&#128214; Show Meanings: OFF</button>
     </div>
@@ -350,29 +351,51 @@
   }
 
   var highlightTimer = null;
+  var fallbackActive = false;
+  var fallbackWords = [];
+  var fallbackIdx = 0;
+  var fallbackRate = 1;
+  var gotBoundary = false;
+  var isPaused = false;
+  var btnPause = document.getElementById('btnPause');
 
   function estimateWordDuration(word, rate){
-    // Base duration plus extra time for longer words, scaled by speaking rate
     var base = 260;
     var perChar = 38;
     var ms = base + (word.length * perChar);
     return ms / rate;
   }
 
-  function highlightWordsOverTime(words, startIdx, rate){
-    clearTimeout(highlightTimer);
-    var i = startIdx;
-    function step(){
-      clearHighlight();
-      if (i >= wordSpans.length) { return; }
-      var target = wordSpans[i];
+  function fallbackStep(){
+    clearHighlight();
+    if (fallbackIdx >= fallbackWords.length) { fallbackActive = false; return; }
+    var target = wordSpans[fallbackIdx];
+    if (target){
       target.classList.add('active');
       target.scrollIntoView({block:'center', behavior:'smooth'});
-      var dur = estimateWordDuration(words[i - startIdx] || '', rate);
-      i++;
-      highlightTimer = setTimeout(step, dur);
     }
-    step();
+    var dur = estimateWordDuration(fallbackWords[fallbackIdx - (fallbackWords.startOffset || 0)] || '', fallbackRate);
+    fallbackIdx++;
+    highlightTimer = setTimeout(fallbackStep, dur);
+  }
+
+  function startFallback(words, startIdx, rate){
+    fallbackActive = true;
+    fallbackWords = words;
+    fallbackWords.startOffset = startIdx;
+    fallbackIdx = startIdx;
+    fallbackRate = rate;
+    fallbackStep();
+  }
+
+  function computeOffsets(words){
+    var offsets = [];
+    var pos = 0;
+    words.forEach(function(w){
+      offsets.push(pos);
+      pos += w.length + 1;
+    });
+    return offsets;
   }
 
   function speak(text, startWordIndex){
@@ -383,24 +406,74 @@
     window.speechSynthesis.cancel();
     clearTimeout(highlightTimer);
     clearHighlight();
+    fallbackActive = false;
+    gotBoundary = false;
+    isPaused = false;
+    btnPause.disabled = false;
+    btnPause.innerHTML = '&#9208; Pause';
 
     var utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = accentSelect.value;
-    utterance.rate = parseFloat(speedRange.value);
+    var rate = parseFloat(speedRange.value);
+    utterance.rate = rate;
 
-    var idx = startWordIndex || 0;
+    var startIdx = startWordIndex || 0;
     var wordsInText = text.split(/\s+/);
+    var offsets = computeOffsets(wordsInText);
 
-    utterance.onstart = function(){
-      highlightWordsOverTime(wordsInText, idx, utterance.rate);
+    utterance.onboundary = function(e){
+      if (e.charIndex === undefined) return;
+      gotBoundary = true;
+      clearTimeout(highlightTimer);
+      fallbackActive = false;
+      var wIdx = 0;
+      for (var k = 0; k < offsets.length; k++){
+        if (offsets[k] <= e.charIndex) { wIdx = k; } else { break; }
+      }
+      clearHighlight();
+      var target = wordSpans[startIdx + wIdx];
+      if (target){
+        target.classList.add('active');
+        target.scrollIntoView({block:'center', behavior:'smooth'});
+      }
     };
+
     utterance.onend = function(){
       clearTimeout(highlightTimer);
       clearHighlight();
+      fallbackActive = false;
+      btnPause.disabled = true;
+      btnPause.innerHTML = '&#9208; Pause';
     };
+
     currentUtterance = utterance;
     window.speechSynthesis.speak(utterance);
+
+    // If no boundary event arrives quickly, this browser/voice doesn't
+    // support word boundaries reliably - fall back to estimated timing.
+    setTimeout(function(){
+      if (!gotBoundary){
+        startFallback(wordsInText, startIdx, rate);
+      }
+    }, 700);
   }
+
+  btnPause.addEventListener('click', function(){
+    if (!currentUtterance) return;
+    if (!isPaused){
+      window.speechSynthesis.pause();
+      isPaused = true;
+      btnPause.innerHTML = '&#9654; Resume';
+      clearTimeout(highlightTimer);
+    } else {
+      window.speechSynthesis.resume();
+      isPaused = false;
+      btnPause.innerHTML = '&#9208; Pause';
+      if (fallbackActive){
+        fallbackStep();
+      }
+    }
+  });
 
   function readFrom(startSpan){
     var startIdx = wordSpans.indexOf(startSpan);
@@ -419,6 +492,10 @@
     }
     clearTimeout(highlightTimer);
     clearHighlight();
+    fallbackActive = false;
+    isPaused = false;
+    btnPause.disabled = true;
+    btnPause.innerHTML = '&#9208; Pause';
   });
 
   function renderLesson(data){
