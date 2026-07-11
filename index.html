@@ -112,6 +112,47 @@
     color:var(--navy);
     font-weight:700;
   }
+  .word.meaning-mode{
+    text-decoration:underline dotted var(--navy);
+  }
+
+  #btnMeaningToggle{
+    background:#fff;
+    border:1px solid var(--navy);
+    color:var(--navy);
+  }
+  #btnMeaningToggle.on{
+    background:var(--navy);
+    color:var(--gold);
+    border-color:var(--navy);
+  }
+
+  #meaningPopup{
+    position:fixed;
+    left:50%;
+    bottom:20px;
+    transform:translateX(-50%);
+    background:var(--navy);
+    color:var(--gold);
+    padding:12px 18px;
+    border-radius:10px;
+    border:2px solid var(--gold);
+    font-size:1.1rem;
+    font-family:'Roboto',sans-serif;
+    box-shadow:0 6px 18px rgba(0,0,0,.3);
+    z-index:1000;
+    display:none;
+    max-width:90%;
+    text-align:center;
+  }
+  #meaningPopup .en{
+    font-weight:700;
+    font-family:Georgia,serif;
+  }
+  #meaningPopup .ta{
+    font-size:1.15rem;
+    margin-top:4px;
+  }
 
   .blank{
     display:inline-block;
@@ -169,8 +210,11 @@
     <div class="controls-row">
       <button class="primary" id="btnPlay" type="button">&#128266; Read Aloud</button>
       <button class="stop" id="btnStop" type="button">&#9209; Stop</button>
+      <button id="btnMeaningToggle" type="button">&#128214; Show Meanings: OFF</button>
     </div>
-    <p class="hint">&#128161; Click any word in the text to start reading from there. Click a dashed blank to reveal the answer.</p>
+    <div class="controls-row">
+    </div>
+    <p class="hint">&#128161; Click any word to start reading from there. Turn on "Show Meanings" to tap a word for its Tamil meaning instead. Click a dashed blank to reveal the answer.</p>
   </div>
 
   <div class="panel" id="lessonPanel">
@@ -190,6 +234,8 @@
     T.S. Ramachandran, ELT, GHSS Erasakkanayakanur, Theni District
   </footer>
 
+  <div id="meaningPopup"></div>
+
 </div>
 
 <script>
@@ -206,7 +252,43 @@
   var speedVal = document.getElementById('speedVal');
   var btnPlay = document.getElementById('btnPlay');
   var btnStop = document.getElementById('btnStop');
+  var btnMeaningToggle = document.getElementById('btnMeaningToggle');
+  var meaningPopup = document.getElementById('meaningPopup');
   var lessonText = document.getElementById('lessonText');
+
+  var meaningMode = false;
+  var glossary = {};
+
+  btnMeaningToggle.addEventListener('click', function(){
+    meaningMode = !meaningMode;
+    btnMeaningToggle.classList.toggle('on', meaningMode);
+    btnMeaningToggle.textContent = (meaningMode ? '\uD83D\uDCD6 Show Meanings: ON' : '\uD83D\uDCD6 Show Meanings: OFF');
+    document.querySelectorAll('.word').forEach(function(w){
+      w.classList.toggle('meaning-mode', meaningMode);
+    });
+    meaningPopup.style.display = 'none';
+  });
+
+  function cleanWord(text){
+    return text.toLowerCase().replace(/[^a-z']/g, '');
+  }
+
+  function showMeaning(wordSpan){
+    var key = cleanWord(wordSpan.textContent);
+    var meaning = glossary[key];
+    if (meaning){
+      meaningPopup.innerHTML =
+        '<div class="en">' + wordSpan.textContent.trim() + '</div>' +
+        '<div class="ta">' + meaning + '</div>';
+    } else {
+      meaningPopup.innerHTML =
+        '<div class="en">' + wordSpan.textContent.trim() + '</div>' +
+        '<div class="ta">(meaning not added yet)</div>';
+    }
+    meaningPopup.style.display = 'block';
+    clearTimeout(showMeaning._t);
+    showMeaning._t = setTimeout(function(){ meaningPopup.style.display = 'none'; }, 3500);
+  }
 
   speedRange.addEventListener('input', function(){
     speedVal.textContent = speedRange.value;
@@ -241,10 +323,14 @@
               p.appendChild(document.createTextNode(w));
             } else {
               var wspan = document.createElement('span');
-              wspan.className = 'word';
+              wspan.className = 'word' + (meaningMode ? ' meaning-mode' : '');
               wspan.textContent = w;
               wspan.addEventListener('click', function(){
-                readFrom(wspan);
+                if (meaningMode){
+                  showMeaning(wspan);
+                } else {
+                  readFrom(wspan);
+                }
               });
               p.appendChild(wspan);
               wordSpans.push(wspan);
@@ -263,33 +349,53 @@
     return wordSpans.map(function(s){ return s.textContent; }).join(' ');
   }
 
+  var highlightTimer = null;
+
+  function estimateWordDuration(word, rate){
+    // Base duration plus extra time for longer words, scaled by speaking rate
+    var base = 260;
+    var perChar = 38;
+    var ms = base + (word.length * perChar);
+    return ms / rate;
+  }
+
+  function highlightWordsOverTime(words, startIdx, rate){
+    clearTimeout(highlightTimer);
+    var i = startIdx;
+    function step(){
+      clearHighlight();
+      if (i >= wordSpans.length) { return; }
+      var target = wordSpans[i];
+      target.classList.add('active');
+      target.scrollIntoView({block:'center', behavior:'smooth'});
+      var dur = estimateWordDuration(words[i - startIdx] || '', rate);
+      i++;
+      highlightTimer = setTimeout(step, dur);
+    }
+    step();
+  }
+
   function speak(text, startWordIndex){
     if (!('speechSynthesis' in window)){
       alert('Text-to-speech is not supported in this browser.');
       return;
     }
     window.speechSynthesis.cancel();
+    clearTimeout(highlightTimer);
     clearHighlight();
 
     var utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = accentSelect.value;
     utterance.rate = parseFloat(speedRange.value);
 
-    var wordsInText = text.split(/\s+/);
     var idx = startWordIndex || 0;
+    var wordsInText = text.split(/\s+/);
 
-    utterance.onboundary = function(e){
-      if (e.name === 'word' || e.charIndex !== undefined){
-        var target = wordSpans[idx];
-        clearHighlight();
-        if (target){
-          target.classList.add('active');
-          target.scrollIntoView({block:'center', behavior:'smooth'});
-        }
-        idx++;
-      }
+    utterance.onstart = function(){
+      highlightWordsOverTime(wordsInText, idx, utterance.rate);
     };
     utterance.onend = function(){
+      clearTimeout(highlightTimer);
       clearHighlight();
     };
     currentUtterance = utterance;
@@ -311,6 +417,7 @@
     if ('speechSynthesis' in window){
       window.speechSynthesis.cancel();
     }
+    clearTimeout(highlightTimer);
     clearHighlight();
   });
 
@@ -320,6 +427,13 @@
     document.getElementById('lessonTitle').textContent = data.title || 'Untitled Lesson';
     document.getElementById('lessonMeta').textContent =
       'Class ' + (data.class || '-') + ' | Unit ' + (data.unit || '-') + ' | ' + (data.type || '-');
+
+    glossary = {};
+    if (data.glossary){
+      Object.keys(data.glossary).forEach(function(k){
+        glossary[cleanWord(k)] = data.glossary[k];
+      });
+    }
 
     lessonText.innerHTML = '';
     (data.paragraphs || []).forEach(function(para){
