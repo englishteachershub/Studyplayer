@@ -113,6 +113,14 @@
     color:var(--navy);
     font-weight:700;
   }
+  .sentence.active-sentence{
+    background:#fdf3d0;
+    box-shadow:0 0 0 2px var(--gold);
+    border-radius:4px;
+  }
+  .sentence.active-sentence .word{
+    color:var(--navy);
+  }
   .word.meaning-mode{
     text-decoration:underline dotted var(--navy);
   }
@@ -336,6 +344,7 @@
 
   var currentUtterance = null;
   var wordSpans = [];
+  var sentenceSpans = [];
 
   function buildWordSpans(container){
     // Wrap every word in the paragraph text (skipping inside .blank) in a clickable span
@@ -379,10 +388,43 @@
         }
       });
     });
+    groupParagraphIntoSentences(container);
+  }
+
+  function groupParagraphIntoSentences(container){
+    var paragraphs = container.querySelectorAll('p');
+    paragraphs.forEach(function(p){
+      var nodes = Array.prototype.slice.call(p.childNodes);
+      var groups = [];
+      var current = [];
+      nodes.forEach(function(node){
+        current.push(node);
+        if (node.nodeType === 1 && node.classList && node.classList.contains('word')){
+          if (/[.!?]["\u201D']?$/.test(node.textContent)){
+            groups.push(current);
+            current = [];
+          }
+        }
+      });
+      if (current.length){ groups.push(current); }
+
+      p.innerHTML = '';
+      groups.forEach(function(group){
+        var sentSpan = document.createElement('span');
+        sentSpan.className = 'sentence';
+        group.forEach(function(n){ sentSpan.appendChild(n); });
+        p.appendChild(sentSpan);
+        var wordsInSentence = Array.prototype.slice.call(sentSpan.querySelectorAll('.word'));
+        if (wordsInSentence.length){
+          var sentText = wordsInSentence.map(function(w){ return w.textContent; }).join(' ');
+          sentenceSpans.push({ el: sentSpan, text: sentText, firstWordIdx: wordSpans.indexOf(wordsInSentence[0]) });
+        }
+      });
+    });
   }
 
   function clearHighlight(){
-    wordSpans.forEach(function(s){ s.classList.remove('active'); });
+    sentenceSpans.forEach(function(s){ s.el.classList.remove('active-sentence'); });
   }
 
   function fullText(){
@@ -393,7 +435,7 @@
   var btnPause = document.getElementById('btnPause');
   var speaking = false;
 
-  function speakFromIndex(startIdx){
+  function speakFromSentence(startSentIdx){
     if (!('speechSynthesis' in window)){
       alert('Text-to-speech is not supported in this browser.');
       return;
@@ -407,19 +449,19 @@
 
     var rate = parseFloat(speedRange.value);
     var accent = accentSelect.value;
-    var lastIdx = wordSpans.length - 1;
+    var lastIdx = sentenceSpans.length - 1;
 
-    for (var i = startIdx; i < wordSpans.length; i++){
-      (function(wordIdx){
-        var u = new SpeechSynthesisUtterance(wordSpans[wordIdx].textContent);
+    for (var i = startSentIdx; i < sentenceSpans.length; i++){
+      (function(sentIdx){
+        var u = new SpeechSynthesisUtterance(sentenceSpans[sentIdx].text);
         u.lang = accent;
         u.rate = rate;
         u.onstart = function(){
           clearHighlight();
-          wordSpans[wordIdx].classList.add('active');
-          wordSpans[wordIdx].scrollIntoView({block:'center', behavior:'smooth'});
+          sentenceSpans[sentIdx].el.classList.add('active-sentence');
+          sentenceSpans[sentIdx].el.scrollIntoView({block:'center', behavior:'smooth'});
         };
-        if (wordIdx === lastIdx){
+        if (sentIdx === lastIdx){
           u.onend = function(){
             clearHighlight();
             speaking = false;
@@ -446,13 +488,15 @@
   });
 
   function readFrom(startSpan){
-    var startIdx = wordSpans.indexOf(startSpan);
-    speakFromIndex(startIdx);
+    var sentEl = startSpan.closest('.sentence');
+    var sentIdx = sentenceSpans.findIndex(function(s){ return s.el === sentEl; });
+    if (sentIdx === -1) { sentIdx = 0; }
+    speakFromSentence(sentIdx);
   }
 
   btnPlay.addEventListener('click', function(){
-    if (wordSpans.length === 0) return;
-    speakFromIndex(0);
+    if (sentenceSpans.length === 0) return;
+    speakFromSentence(0);
   });
 
   btnStop.addEventListener('click', function(){
