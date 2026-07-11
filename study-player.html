@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Study Player - English Teachers Hub</title>
+<style>
+  :root{
+    --navy:#1B2A4A;
+    --gold:#C9A227;
+    --bg:#F5F6F8;
+    --surface:#ffffff;
+    --border:#E3E5E8;
+    --text:#202124;
+    --muted:#5F6368;
+  }
+  *,*::before,*::after{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:'Georgia',serif;
+    background:var(--bg);
+    color:var(--text);
+    padding:16px;
+  }
+  .wrap{max-width:820px;margin:0 auto}
+  header{
+    background:var(--navy);
+    border-bottom:3px solid var(--gold);
+    border-radius:10px;
+    padding:14px 18px;
+    margin-bottom:16px;
+    color:#fff;
+  }
+  header h1{
+    margin:0;
+    font-size:1.15rem;
+    color:var(--gold);
+    font-family:Georgia,serif;
+  }
+  header p{margin:4px 0 0;font-size:.8rem;color:#e8d9a8}
+
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+    margin-bottom:16px;
+    box-shadow:0 2px 8px rgba(27,42,74,.08);
+  }
+  .controls-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    margin-bottom:10px;
+  }
+  select, button{
+    font-family:inherit;
+    font-size:.85rem;
+    padding:8px 12px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:#fff;
+    cursor:pointer;
+  }
+  button.primary{
+    background:var(--navy);
+    color:var(--gold);
+    border:none;
+    font-weight:700;
+  }
+  button.primary:hover{background:#243a63}
+  button.stop{
+    background:#fff;
+    color:#b3261e;
+    border:1px solid #b3261e;
+  }
+  .speed-label{font-size:.8rem;color:var(--muted)}
+  input[type="range"]{vertical-align:middle}
+
+  .hint{
+    font-size:.78rem;
+    color:var(--muted);
+    margin:0 0 10px;
+  }
+
+  #lessonTitle{
+    font-size:1.4rem;
+    color:var(--navy);
+    margin:0 0 6px;
+  }
+  #lessonMeta{
+    font-size:.8rem;
+    color:var(--muted);
+    margin-bottom:16px;
+  }
+
+  .lesson-text{
+    font-size:1.15rem;
+    line-height:2;
+  }
+  .lesson-text p{margin:0 0 18px}
+
+  .word{
+    cursor:pointer;
+    border-radius:3px;
+    padding:0 1px;
+  }
+  .word:hover{background:#fdf3d0}
+  .word.active{
+    background:var(--gold);
+    color:var(--navy);
+    font-weight:700;
+  }
+
+  .blank{
+    display:inline-block;
+    min-width:70px;
+    border-bottom:2px dashed var(--navy);
+    color:transparent;
+    cursor:pointer;
+    text-align:center;
+    user-select:none;
+  }
+  .blank.revealed{
+    color:var(--navy);
+    font-weight:700;
+    border-bottom-style:solid;
+    border-color:var(--gold);
+  }
+
+  .empty-state{
+    text-align:center;
+    color:var(--muted);
+    padding:40px 20px;
+  }
+  .empty-state h2{color:var(--navy)}
+
+  footer{
+    text-align:center;
+    font-size:.75rem;
+    color:var(--muted);
+    margin-top:24px;
+    padding:12px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Study Player</h1>
+    <p>English Teachers Hub - Read Aloud &amp; Practice</p>
+  </header>
+
+  <div class="panel">
+    <div class="controls-row">
+      <label>Accent:
+        <select id="accentSelect">
+          <option value="en-IN">Indian English</option>
+          <option value="en-GB">British English</option>
+          <option value="en-US">American English</option>
+        </select>
+      </label>
+      <label class="speed-label">Speed <span id="speedVal">0.9</span>x
+        <input type="range" id="speedRange" min="0.5" max="1.5" step="0.1" value="0.9"/>
+      </label>
+    </div>
+    <div class="controls-row">
+      <button class="primary" id="btnPlay" type="button">&#128266; Read Aloud</button>
+      <button class="stop" id="btnStop" type="button">&#9209; Stop</button>
+    </div>
+    <p class="hint">&#128161; Click any word in the text to start reading from there. Click a dashed blank to reveal the answer.</p>
+  </div>
+
+  <div class="panel" id="lessonPanel">
+    <div class="empty-state" id="emptyState">
+      <h2>No content loaded</h2>
+      <p>This player loads a lesson via the link on your blog post.<br/>Example: <code>?class=8&amp;unit=1&amp;type=prose</code></p>
+    </div>
+
+    <div id="lessonContent" style="display:none">
+      <h2 id="lessonTitle"></h2>
+      <p id="lessonMeta"></p>
+      <div class="lesson-text" id="lessonText"></div>
+    </div>
+  </div>
+
+  <footer>
+    T.S. Ramachandran, ELT, GHSS Erasakkanayakanur, Theni District
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var params = new URLSearchParams(window.location.search);
+  var cls = params.get('class');
+  var unit = params.get('unit');
+  var type = params.get('type');
+
+  var accentSelect = document.getElementById('accentSelect');
+  var speedRange = document.getElementById('speedRange');
+  var speedVal = document.getElementById('speedVal');
+  var btnPlay = document.getElementById('btnPlay');
+  var btnStop = document.getElementById('btnStop');
+  var lessonText = document.getElementById('lessonText');
+
+  speedRange.addEventListener('input', function(){
+    speedVal.textContent = speedRange.value;
+  });
+
+  var currentUtterance = null;
+  var wordSpans = [];
+
+  function buildWordSpans(container){
+    // Wrap every word in the paragraph text (skipping inside .blank) in a clickable span
+    var paragraphs = container.querySelectorAll('p[data-raw]');
+    paragraphs.forEach(function(p){
+      var raw = p.getAttribute('data-raw');
+      // split on blanks marker first: {{answer}}
+      var parts = raw.split(/(\{\{[^}]+\}\})/g);
+      p.innerHTML = '';
+      parts.forEach(function(part){
+        if (!part) return;
+        var blankMatch = part.match(/^\{\{([^}]+)\}\}$/);
+        if (blankMatch){
+          var span = document.createElement('span');
+          span.className = 'blank';
+          span.textContent = blankMatch[1];
+          span.addEventListener('click', function(){
+            span.classList.toggle('revealed');
+          });
+          p.appendChild(span);
+        } else {
+          var words = part.split(/(\s+)/);
+          words.forEach(function(w){
+            if (w.trim() === ''){
+              p.appendChild(document.createTextNode(w));
+            } else {
+              var wspan = document.createElement('span');
+              wspan.className = 'word';
+              wspan.textContent = w;
+              wspan.addEventListener('click', function(){
+                readFrom(wspan);
+              });
+              p.appendChild(wspan);
+              wordSpans.push(wspan);
+            }
+          });
+        }
+      });
+    });
+  }
+
+  function clearHighlight(){
+    wordSpans.forEach(function(s){ s.classList.remove('active'); });
+  }
+
+  function fullText(){
+    return wordSpans.map(function(s){ return s.textContent; }).join(' ');
+  }
+
+  function speak(text, startWordIndex){
+    if (!('speechSynthesis' in window)){
+      alert('Text-to-speech is not supported in this browser.');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    clearHighlight();
+
+    var utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = accentSelect.value;
+    utterance.rate = parseFloat(speedRange.value);
+
+    var wordsInText = text.split(/\s+/);
+    var idx = startWordIndex || 0;
+
+    utterance.onboundary = function(e){
+      if (e.name === 'word' || e.charIndex !== undefined){
+        var target = wordSpans[idx];
+        clearHighlight();
+        if (target){
+          target.classList.add('active');
+          target.scrollIntoView({block:'center', behavior:'smooth'});
+        }
+        idx++;
+      }
+    };
+    utterance.onend = function(){
+      clearHighlight();
+    };
+    currentUtterance = utterance;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function readFrom(startSpan){
+    var startIdx = wordSpans.indexOf(startSpan);
+    var remainingWords = wordSpans.slice(startIdx).map(function(s){ return s.textContent; }).join(' ');
+    speak(remainingWords, startIdx);
+  }
+
+  btnPlay.addEventListener('click', function(){
+    if (wordSpans.length === 0) return;
+    speak(fullText(), 0);
+  });
+
+  btnStop.addEventListener('click', function(){
+    if ('speechSynthesis' in window){
+      window.speechSynthesis.cancel();
+    }
+    clearHighlight();
+  });
+
+  function renderLesson(data){
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('lessonContent').style.display = 'block';
+    document.getElementById('lessonTitle').textContent = data.title || 'Untitled Lesson';
+    document.getElementById('lessonMeta').textContent =
+      'Class ' + (data.class || '-') + ' | Unit ' + (data.unit || '-') + ' | ' + (data.type || '-');
+
+    lessonText.innerHTML = '';
+    (data.paragraphs || []).forEach(function(para){
+      var p = document.createElement('p');
+      p.setAttribute('data-raw', para);
+      lessonText.appendChild(p);
+    });
+    buildWordSpans(lessonText);
+  }
+
+  function loadLesson(){
+    if (!cls || !unit || !type){
+      return; // show empty state
+    }
+    var file = 'lessons/' + 'class' + cls + '-unit' + unit + '-' + type + '.json';
+    fetch(file)
+      .then(function(res){
+        if (!res.ok) throw new Error('Lesson file not found: ' + file);
+        return res.json();
+      })
+      .then(renderLesson)
+      .catch(function(err){
+        document.getElementById('emptyState').innerHTML =
+          '<h2>Lesson not found</h2><p>Could not load <code>' + file + '</code>.<br/>Check the file exists on GitHub Pages.</p>';
+      });
+  }
+
+  loadLesson();
+})();
+</script>
+</body>
+</html>
